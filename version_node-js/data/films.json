@@ -1,0 +1,16 @@
+[
+  { "id": 1, "titre": "Inception", "realisateur": "Christopher Nolan", "annee": 2010, "places_disponibles": 50 },
+  { "id": 2, "titre": "Avatar", "realisateur": "James Cameron", "annee": 2009, "places_disponibles": 45 },
+  { "id": 3, "titre": "Interstellar", "realisateur": "Christopher Nolan", "annee": 2014, "places_disponibles": 60 },
+  { "id": 4, "titre": "The Matrix", "realisateur": "Wachowski", "annee": 1999, "places_disponibles": 40 },
+  { "id": 5, "titre": "Tenet", "realisateur": "Christopher Nolan", "annee": 2020, "places_disponibles": 55 },
+  { "id": 6, "titre": "Gladiator", "realisateur": "Ridley Scott", "annee": 2000, "places_disponibles": 35 },
+  { "id": 7, "titre": "The Social Network", "realisateur": "David Fincher", "annee": 2010, "places_disponibles": 42 },
+  { "id": 8, "titre": "Parasite", "realisateur": "Bong Joon-ho", "annee": 2019, "places_disponibles": 48 },
+  { "id": 9, "titre": "Joker", "realisateur": "Todd Phillips", "annee": 2019, "places_disponibles": 53 },
+  { "id": 10, "titre": "The Shawshank Redemption", "realisateur": "Frank Darabont", "annee": 1994, "places_disponibles": 37 },
+  { "id": 11, "titre": "Pulp Fiction", "realisateur": "Quentin Tarantino", "annee": 1994, "places_disponibles": 41 },
+  { "id": 12, "titre": "The Dark Knight", "realisateur": "Christopher Nolan", "annee": 2008, "places_disponibles": 58 },
+  { "id": 13, "titre": "Forrest Gump", "realisateur": "Robert Zemeckis", "annee": 1994, "places_disponibles": 50 },
+  { "id": 14, "titre": "Avengers: Endgame", "realisateur": "Anthony et Joe Russo", "annee": 2019, "places_disponibles": 65 }
+]

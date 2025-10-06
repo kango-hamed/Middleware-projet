@@ -17,42 +17,6 @@ const USERS_DB = path.join(DB_DIR, 'users.json');
 const RESERVATIONS_DB = path.join(DB_DIR, 'reservations.json');
 
 // ============================================
-// INITIALISATION DE LA BASE DE DONNÉES
-// ============================================
-function initDatabase() {
-  // Créer le dossier data s'il n'existe pas
-  if (!fs.existsSync(DB_DIR)) {
-    fs.mkdirSync(DB_DIR, { recursive: true });
-  }
-
-  // Initialiser films.json
-  if (!fs.existsSync(FILMS_DB)) {
-    const films = [
-      { id: 1, titre: "Inception", realisateur: "Christopher Nolan", annee: 2010, places_disponibles: 50 },
-      { id: 2, titre: "Avatar", realisateur: "James Cameron", annee: 2009, places_disponibles: 45 },
-      { id: 3, titre: "Interstellar", realisateur: "Christopher Nolan", annee: 2014, places_disponibles: 60 },
-      { id: 4, titre: "The Matrix", realisateur: "Wachowski", annee: 1999, places_disponibles: 40 }
-    ];
-    fs.writeFileSync(FILMS_DB, JSON.stringify(films, null, 2));
-  }
-
-  // Initialiser users.json
-  if (!fs.existsSync(USERS_DB)) {
-    const users = [
-      { id: 1, username: "admin", password: "1234", nom: "Administrateur" },
-      { id: 2, username: "user1", password: "password", nom: "Jean Dupont" }
-    ];
-    fs.writeFileSync(USERS_DB, JSON.stringify(users, null, 2));
-  }
-
-  // Initialiser reservations.json
-  if (!fs.existsSync(RESERVATIONS_DB)) {
-    const reservations = [];
-    fs.writeFileSync(RESERVATIONS_DB, JSON.stringify(reservations, null, 2));
-  }
-}
-
-// ============================================
 // FONCTIONS UTILITAIRES
 // ============================================
 
@@ -382,7 +346,6 @@ const server = http.createServer((req, res) => {
 // ============================================
 // DÉMARRAGE DU SERVEUR
 // ============================================
-initDatabase();
 
 server.listen(PORT, () => {
   console.log('='.repeat(50));

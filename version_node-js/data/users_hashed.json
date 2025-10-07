@@ -1,0 +1,86 @@
+[
+  {
+    "id": 1,
+    "username": "admin",
+    "nom": "Administrateur",
+    "passwordHash": "6f47fc827501e332702c20515cac5b2c743800ff31646ddfa5d715d33083f51cbb45d229de502a12e52deba8057dcdb730ced9098a22e2ea7b152187575df164",
+    "passwordSalt": "b0b4df378940395397beccffc3d2963d"
+  },
+  {
+    "id": 2,
+    "username": "user1",
+    "nom": "Jean Dupont",
+    "passwordHash": "518238494e86055c428c6058b240ee4ba3070ce668b3d6e443c2dd181968d4b022123774c3a8cbd2c4c078b04d290e5f8096512501d25a4e9b8fdb7185f905cc",
+    "passwordSalt": "4b835a0e30d65aeb98a08f0f8d63a6b1"
+  },
+  {
+    "id": 3,
+    "username": "user2",
+    "nom": "Marie Durand",
+    "passwordHash": "0eef46a9ca6eae0ee8b670383973cd87ae9eb4b0a2d478a81adfa211ddd418e4b8e9be0a40a9689e2ab60e359a9128c73020f78ee0944d84c5a1d7fff307f1b2",
+    "passwordSalt": "f1a8fa752792d5441db41ee2368e70f1"
+  },
+  {
+    "id": 4,
+    "username": "ahmed.t",
+    "nom": "Ahmed Traoré",
+    "passwordHash": "1441e19fa14a4342eb98aeb5c9d40cf098f0a36e80c173f9ec3b12bad0de6bcb39a357c3f525fc8c2159d173cda75e42b6ed2806163f5bf8b4d1e017510d0d8d",
+    "passwordSalt": "f4ad85fc52b002dfaed0cfd33856d182"
+  },
+  {
+    "id": 5,
+    "username": "aicha.k",
+    "nom": "Aïcha Koné",
+    "passwordHash": "e8f7c07ca6970aa85d00dbb925a11116521e2231b060f600cb8532fa2d2df4313a6210a129ab84841223ffab1214d9110be9a8bd255c4292196b4378a64dc632",
+    "passwordSalt": "6f3cd9c792d20cbc5818949fede653f6"
+  },
+  {
+    "id": 6,
+    "username": "luc.m",
+    "nom": "Luc Martin",
+    "passwordHash": "ba53e1643a56980e46830e0f89ea5289be628b639384a07a682f395550f32e1ca2a2893d3d9a096cfb407d72ec19510e1f47eb6e436e734910b414c63295c1c6",
+    "passwordSalt": "6fcb401176625aab8453671e6f578bf6"
+  },
+  {
+    "id": 7,
+    "username": "sophie.b",
+    "nom": "Sophie Bernard",
+    "passwordHash": "b76397eb35f684390d04813904144d8e6aeb808019dc5d4c75f963a0725d5113bce80a825d8f96b6bac5cc338d57730f4f42c751b410602663c7ef876be426fb",
+    "passwordSalt": "1a4bad8a03850a1ff2954985dd48a669"
+  },
+  {
+    "id": 8,
+    "username": "mohamed.d",
+    "nom": "Mohamed Diallo",
+    "passwordHash": "145188acb6acf6dd8ef329835ea44da036fb031904bfd6ff7f83160554fceafe72b6b82db1af731678c9e850bbb62e7d2091fa33a11804ada6fd99d1f9360a06",
+    "passwordSalt": "07b910ed142547c5ffaa79c44abaf9ec"
+  },
+  {
+    "id": 9,
+    "username": "clara.moreau",
+    "nom": "Clara Moreau",
+    "passwordHash": "d5bffcdf01af1d749cd557f1741972da11af598a97b2c21b7ba171ab3c9a0b9c738c7955af67399db3d3343ae894e1b43ce527974676b199cad92d996e5405ce",
+    "passwordSalt": "42eb0f8728ee98c353b61f5149657264"
+  },
+  {
+    "id": 10,
+    "username": "thomas.l",
+    "nom": "Thomas Leroy",
+    "passwordHash": "9514573f23f23f5d642ba66b6a2db33e275689ea170a12ee50ca6168847768f95e60f895a36cebb30abb3d82b91ba063911c15c143fc1aa657f97432e4e350e1",
+    "passwordSalt": "931ee009475cb3c02a40f9ddb0ef1323"
+  },
+  {
+    "id": 11,
+    "username": "fatou.c",
+    "nom": "Fatoumata Coulibaly",
+    "passwordHash": "7cf21ae504b57cbb416fa983e6fc2a783269906697a5fcaf8535ee513795273b654b6e7fcdbc66d215bfa178ed83d340b3f61b4678975a407d709ed097ae53fd",
+    "passwordSalt": "d4120d97dd5a3dbd704b8640bd1d84bf"
+  },
+  {
+    "id": 12,
+    "username": "nicolas.p",
+    "nom": "Nicolas Petit",
+    "passwordHash": "131c777b0fb0cb740dad087991e6a6d950aa100c46a34fccd7ae5450d94b2295d93c971d977609920f9b4798f8c853b60da673f09a307310d55ca64ce1ae282b",
+    "passwordSalt": "570317d69fe8626debd178f0101dddb4"
+  }
+]

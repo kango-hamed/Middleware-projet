@@ -1,14 +1,86 @@
 [
-  { "id": 1, "username": "admin", "password": "1234", "nom": "Administrateur" },
-  { "id": 2, "username": "user1", "password": "password", "nom": "Jean Dupont" },
-  { "id": 3, "username": "user2", "password": "pass123", "nom": "Marie Durand" },
-  { "id": 4, "username": "ahmed.t", "password": "mdp2025", "nom": "Ahmed Traoré" },
-  { "id": 5, "username": "aicha.k", "password": "secret!", "nom": "Aïcha Koné" },
-  { "id": 6, "username": "luc.m", "password": "azerty", "nom": "Luc Martin" },
-  { "id": 7, "username": "sophie.b", "password": "qwerty", "nom": "Sophie Bernard" },
-  { "id": 8, "username": "mohamed.d", "password": "welcome1", "nom": "Mohamed Diallo" },
-  { "id": 9, "username": "clara.moreau", "password": "pwd12345", "nom": "Clara Moreau" },
-  { "id": 10, "username": "thomas.l", "password": "soleil2025", "nom": "Thomas Leroy" },
-  { "id": 11, "username": "fatou.c", "password": "luna2025", "nom": "Fatoumata Coulibaly" },
-  { "id": 12, "username": "nicolas.p", "password": "bonjour", "nom": "Nicolas Petit" }
+  {
+    "id": 1,
+    "username": "admin",
+    "password": "12345678",
+    "nom": "Administrateur"
+  },
+  {
+    "id": 2,
+    "username": "user1",
+    "password": "password",
+    "nom": "Jean Dupont"
+  },
+  {
+    "id": 3,
+    "username": "user2",
+    "password": "pass123",
+    "nom": "Marie Durand"
+  },
+  {
+    "id": 4,
+    "username": "ahmed.t",
+    "password": "mdp2025",
+    "nom": "Ahmed Traoré"
+  },
+  {
+    "id": 5,
+    "username": "aicha.k",
+    "password": "secret!",
+    "nom": "Aïcha Koné"
+  },
+  {
+    "id": 6,
+    "username": "luc.m",
+    "password": "azerty",
+    "nom": "Luc Martin"
+  },
+  {
+    "id": 7,
+    "username": "sophie.b",
+    "password": "qwerty",
+    "nom": "Sophie Bernard"
+  },
+  {
+    "id": 8,
+    "username": "mohamed.d",
+    "password": "welcome1",
+    "nom": "Mohamed Diallo"
+  },
+  {
+    "id": 9,
+    "username": "clara.moreau",
+    "password": "pwd12345",
+    "nom": "Clara Moreau"
+  },
+  {
+    "id": 10,
+    "username": "thomas.l",
+    "password": "soleil2025",
+    "nom": "Thomas Leroy"
+  },
+  {
+    "id": 11,
+    "username": "fatou.c",
+    "password": "luna2025",
+    "nom": "Fatoumata Coulibaly"
+  },
+  {
+    "id": 12,
+    "username": "nicolas.p",
+    "password": "bonjour",
+    "nom": "Nicolas Petit"
+  },
+  {
+    "id": 13,
+    "username": "test",
+    "password": "12345678",
+    "nom": "Testeur"
+  },
+  {
+    "id": 14,
+    "username": "newuser",
+    "password": "12345678",
+    "nom": "Testeur"
+  }
 ]

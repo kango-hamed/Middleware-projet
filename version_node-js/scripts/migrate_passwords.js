@@ -1,5 +1,5 @@
 // ============================================
-// CinéReserve - Serveur Node.js pur (avec gestion d’erreurs intégrée)
+// CinéReserve - Serveur Node.js pur (sécurisé)
 // ============================================
 
 const http = require('http');
@@ -18,14 +18,14 @@ const logger = require('./modules/logger');
 const { SECURITY_EVENTS } = require('./modules/logger');
 const { checkRateLimit } = require('./modules/rateLimiter');
 
-// --- Phase 3 modules ajoutés ---
+// === Sécurité avancée ===
 const { setSecurityHeaders } = require('./modules/securityHeaders');
 const { sanitizeObject } = require('./modules/sanitizer');
 const { checkContentLength, readRequestBody } = require('./modules/requestLimiter');
 const { validatePath } = require('./modules/pathSecurity');
-// ------------------------------------------------
+const { generateSalt, hashPassword, verifyPassword } = require('./modules/crypto');
 
-/* Initialiser le système de logs */
+// Initialisation du logger
 logger.initLogger();
 
 // ============================================
@@ -34,24 +34,22 @@ logger.initLogger();
 const PORT = 3000;
 const DB_DIR = path.join(__dirname, 'data');
 const FILMS_DB = path.join(DB_DIR, 'films.json');
-const USERS_DB = path.join(DB_DIR, 'users.json');
+const USERS_DB = path.join(DB_DIR, 'users_hashed.json');
 const RESERVATIONS_DB = path.join(DB_DIR, 'reservations.json');
 
-const MAX_BODY_BYTES = 1 * 1024 * 1024; // 1MB
-const BODY_TIMEOUT_MS = 30 * 1000; // 30s
+const MAX_BODY_BYTES = 1 * 1024 * 1024; // 1 Mo
+const BODY_TIMEOUT_MS = 30 * 1000; // 30 secondes
 
 // ============================================
 // UTILITAIRES
 // ============================================
 function readJsonFile(filePath) {
   try {
-    // Protection path traversal : autoriser lecture seulement dans DB_DIR
     const safePath = validatePath(path.relative(DB_DIR, filePath), DB_DIR);
     const data = fs.readFileSync(safePath, 'utf8');
     return JSON.parse(data);
   } catch (error) {
-    // Si notre validatePath jette, ou fs lit mal => transformer en ServerError
-    if (error.message && error.message.includes('Tentative de path traversal')) {
+    if (error.message && error.message.includes('path traversal')) {
       throw new ServerError(`Accès fichier non autorisé : ${filePath}`, 'SEC_001');
     }
     throw new ServerError(`Erreur lecture fichier : ${filePath}`, 'SYS_002');
@@ -63,43 +61,33 @@ function writeJsonFile(filePath, data) {
     const safePath = validatePath(path.relative(DB_DIR, filePath), DB_DIR);
     fs.writeFileSync(safePath, JSON.stringify(data, null, 2));
   } catch (error) {
-    if (error.message && error.message.includes('Tentative de path traversal')) {
+    if (error.message && error.message.includes('path traversal')) {
       throw new ServerError(`Accès fichier non autorisé : ${filePath}`, 'SEC_001');
     }
     throw new ServerError(`Erreur écriture fichier : ${filePath}`, 'SYS_003');
   }
 }
 
-/**
- * parseRequestBody remplacé par readRequestBody (avec timeout & limite)
- * parseRequestBody garde une compatibilité si tu veux l'utiliser ailleurs
- */
+// Lecture corps de requête sécurisée (avec timeout + limite taille)
 async function parseRequestBody(req) {
-  // Vérifier Content-Length avant de lire
   const clCheck = checkContentLength(req, MAX_BODY_BYTES);
-  if (!clCheck.ok) {
-    const err = new ValidationError(clCheck.message, 'VAL_003');
-    throw err;
-  }
+  if (!clCheck.ok) throw new ValidationError(clCheck.message, 'VAL_003');
 
   try {
     const raw = await readRequestBody(req, MAX_BODY_BYTES, BODY_TIMEOUT_MS);
     const parsed = raw ? JSON.parse(raw) : {};
     return parsed;
   } catch (err) {
-    if (err && err.code === 413) throw new ValidationError('Payload trop volumineux', 'VAL_005');
-    if (err && err.code === 408) throw new ValidationError('Timeout lecture du corps', 'VAL_006');
-    // JSON parse error or others
-    if (err instanceof SyntaxError || (err && err.message && err.message.includes('JSON'))) {
-      throw new ValidationError('Corps JSON invalide', 'VAL_002');
-    }
+    if (err.code === 413) throw new ValidationError('Payload trop volumineux', 'VAL_005');
+    if (err.code === 408) throw new ValidationError('Timeout lecture du corps', 'VAL_006');
+    if (err instanceof SyntaxError) throw new ValidationError('Corps JSON invalide', 'VAL_002');
     throw err;
   }
 }
 
+// Réponse JSON standard + headers sécurité
 function sendJsonResponse(res, statusCode, data) {
-  // Ajouter headers de sécurité systématiquement avant de répondre
-  try { setSecurityHeaders(res); } catch (e) { /* ne pas faire planter la réponse */ }
+  try { setSecurityHeaders(res); } catch {}
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
@@ -137,27 +125,65 @@ const handleGetFilms = asyncHandler(async (req, res) => {
   sendJsonResponse(res, 200, { success: true, data: films });
 });
 
-// POST /login
+// POST /signup — crée un utilisateur avec hash sécurisé
+const handleSignup = asyncHandler(async (req, res) => {
+  const rawBody = await parseRequestBody(req);
+  const body = sanitizeObject(rawBody);
+  validate(body, signupSchema);
+
+  const users = readJsonFile(USERS_DB);
+  if (users.some(u => u.username === body.username)) {
+    throw new ConflictError('Cet utilisateur existe déjà', 'USER_002');
+  }
+
+  const salt = generateSalt();
+  const hash = hashPassword(body.password, salt);
+
+  const newUser = {
+    id: users.length ? Math.max(...users.map(u => u.id)) + 1 : 1,
+    username: body.username,
+    nom: body.nom,
+    passwordHash: hash,
+    passwordSalt: salt,
+  };
+
+  users.push(newUser);
+  writeJsonFile(USERS_DB, users);
+
+  sendJsonResponse(res, 201, {
+    success: true,
+    message: 'Inscription réussie',
+    data: { id: newUser.id, username: newUser.username, nom: newUser.nom },
+  });
+
+  logger.logSecurity(SECURITY_EVENTS.SIGNUP, {
+    userId: newUser.id,
+    username: newUser.username
+  }, req);
+});
+
+// POST /login — vérifie le hash et le salt
 const handleLogin = asyncHandler(async (req, res) => {
-  // 1) lire, 2) sanitiser, 3) valider
   const rawBody = await parseRequestBody(req);
   const body = sanitizeObject(rawBody);
   validate(body, loginSchema);
 
-  // NOTE: si tu utilises users_hashed.json avec passwordHash/passwordSalt,
-  // adapte la logique ici (vérification via verifyPassword). Ici on garde
-  // la logique existante mais on recommande d'utiliser verifyPassword si disponible.
   const users = readJsonFile(USERS_DB);
-  const user = users.find(u => u.username === body.username && (
-    // compatibilité : si utilisateur a passwordHash, ignore password plain search
-    (u.password && u.password === body.password) ||
-    (u.passwordHash && u.passwordSalt && false) // placeholder si verifyPassword est utilisé ailleurs
-  ));
+  const user = users.find(u => u.username === body.username);
 
   if (!user) {
     logger.logSecurity(SECURITY_EVENTS.LOGIN_FAILED, {
       username: body.username,
-      reason: 'invalid_credentials'
+      reason: 'unknown_user'
+    }, req);
+    throw new AuthenticationError('Identifiants incorrects', 'AUTH_004');
+  }
+
+  const isValid = verifyPassword(body.password, user.passwordHash, user.passwordSalt);
+  if (!isValid) {
+    logger.logSecurity(SECURITY_EVENTS.LOGIN_FAILED, {
+      username: body.username,
+      reason: 'invalid_password'
     }, req);
     throw new AuthenticationError('Identifiants incorrects', 'AUTH_004');
   }
@@ -172,39 +198,6 @@ const handleLogin = asyncHandler(async (req, res) => {
     message: 'Connexion réussie',
     data: { userId: user.id, username: user.username, nom: user.nom },
   });
-});
-
-// POST /signup
-const handleSignup = asyncHandler(async (req, res) => {
-  const rawBody = await parseRequestBody(req);
-  const body = sanitizeObject(rawBody);
-  validate(body, signupSchema);
-
-  const users = readJsonFile(USERS_DB);
-  if (users.some(u => u.username === body.username)) {
-    throw new ConflictError('Cet utilisateur existe déjà', 'USER_002');
-  }
-
-  const newUser = {
-    id: users.length ? Math.max(...users.map(u => u.id)) + 1 : 1,
-    username: body.username,
-    password: body.password,
-    nom: body.nom,
-  };
-
-  users.push(newUser);
-  writeJsonFile(USERS_DB, users);
-
-  sendJsonResponse(res, 201, {
-    success: true,
-    message: 'Inscription réussie',
-    data: { id: newUser.id, username: newUser.username, nom: newUser.nom }, // ne pas renvoyer password
-  });
-
-  logger.logSecurity(SECURITY_EVENTS.SIGNUP, {
-    userId: newUser.id,
-    username: newUser.username
-  }, req);
 });
 
 // POST /reservations
@@ -239,18 +232,20 @@ const handleCreateReservation = asyncHandler(async (req, res) => {
   reservations.push(newReservation);
   writeJsonFile(RESERVATIONS_DB, reservations);
 
-  // mise à jour du film
   film.places_disponibles -= body.nombrePlaces;
   writeJsonFile(FILMS_DB, films);
 
-  sendJsonResponse(res, 201, { success: true, message: 'Réservation confirmée', data: newReservation });
+  sendJsonResponse(res, 201, {
+    success: true,
+    message: 'Réservation confirmée',
+    data: newReservation
+  });
 });
 
 // GET /reservations
 const handleGetReservations = asyncHandler(async (req, res) => {
   const params = new URLSearchParams(req.url.split('?')[1] || '');
   const userId = Number(params.get('userId'));
-
   if (!userId || isNaN(userId)) throw new ValidationError('userId invalide ou manquant', 'VAL_004');
 
   const reservations = readJsonFile(RESERVATIONS_DB);
@@ -266,15 +261,12 @@ const handleGetReservations = asyncHandler(async (req, res) => {
 // SERVEUR & ROUTING
 // ============================================
 const server = http.createServer((req, res) => {
-  // calculer pathname correctement (utilisé pour rate limiter)
-  const fullUrl = req.url || '/';
-  const pathname = fullUrl.split('?')[0];
-
+  const pathname = req.url.split('?')[0];
   const ip = req.socket.remoteAddress;
-  const rate = checkRateLimit(ip, pathname);
 
+  const rate = checkRateLimit(ip, pathname);
   if (rate.blocked) {
-    try { setSecurityHeaders(res); } catch (e) {}
+    setSecurityHeaders(res);
     res.writeHead(429, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ success: false, error: rate.reason }));
   }
@@ -283,11 +275,11 @@ const server = http.createServer((req, res) => {
   logger.logHttpRequest(req, res);
 
   if (req.method === 'OPTIONS') {
-    try { setSecurityHeaders(res); } catch (e) {}
+    setSecurityHeaders(res);
     res.writeHead(200, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type',
     });
     return res.end();
   }
@@ -311,7 +303,7 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  logger.log('INFO', `Serveur CinéReserve démarré sur le port ${PORT}`, {
+  logger.log('INFO', `✅ Serveur CinéReserve démarré sur le port ${PORT}`, {
     port: PORT,
     environment: process.env.NODE_ENV || 'development'
   });
@@ -320,8 +312,6 @@ server.listen(PORT, () => {
 // ============================================
 // GESTION DES ERREURS NON CAPTURÉES & ARRÊT PROPRE
 // ============================================
-
-// Erreurs synchrones non gérées
 process.on('uncaughtException', (error) => {
   logger.log('CRITICAL', 'Erreur critique non gérée (uncaughtException)', {}, error);
   gracefulShutdown('uncaughtException');
@@ -344,6 +334,5 @@ function gracefulShutdown(signal) {
   }, 30000);
 }
 
-// SIGINT / SIGTERM
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

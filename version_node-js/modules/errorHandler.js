@@ -46,14 +46,16 @@ function handleError(error, req, res) {
   const formatted = formatError(error);
 
   const response = {
-    success: false,
-    error: {
-      code: formatted.code || 'SYS_000',
-      message: formatted.message,
-    },
-    requestId: req?.id || 'N/A',
-    timestamp: formatted.timestamp || new Date().toISOString(),
-  };
+  success: false,
+  error: {
+    code: formatted.code || 'SYS_000',
+    message: formatted.message,
+    ...(formatted.details ? { details: formatted.details } : {}) // ✅ ajoute les détails si présents
+  },
+  requestId: req?.id || 'N/A',
+  timestamp: formatted.timestamp || new Date().toISOString(),
+};
+
 
   // Logger enrichi (console.log pour simplifier ici)
   console.error('--- ERREUR ---');

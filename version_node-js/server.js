@@ -1,6 +1,5 @@
 // ============================================
-// CinéReserve - Serveur Node.js pur (sans middleware)
-// Fichier: server_no_middleware.js
+// CinéReserve - Serveur Node.js pur (avec gestion d’erreurs intégrée)
 // ============================================
 
 const http = require('http');
@@ -26,349 +25,207 @@ const USERS_DB = path.join(DB_DIR, 'users.json');
 const RESERVATIONS_DB = path.join(DB_DIR, 'reservations.json');
 
 // ============================================
-// FONCTIONS UTILITAIRES
+// UTILITAIRES
 // ============================================
-
-// Lire les données d'un fichier JSON
 function readJsonFile(filePath) {
   try {
     const data = fs.readFileSync(filePath, 'utf8');
     return JSON.parse(data);
   } catch (error) {
-    console.error(`Erreur lors de la lecture de ${filePath}:`, error);
-    return null;
+    throw new ServerError(`Erreur lecture fichier : ${filePath}`, 'SYS_002');
   }
 }
 
-// Écrire des données dans un fichier JSON
 function writeJsonFile(filePath, data) {
   try {
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    return true;
   } catch (error) {
-    console.error(`Erreur lors de l'écriture dans ${filePath}:`, error);
-    return false;
+    throw new ServerError(`Erreur écriture fichier : ${filePath}`, 'SYS_003');
   }
 }
 
-// Parser le corps de la requête (pour POST)
 function parseRequestBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
-    
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    
+    req.on('data', chunk => (body += chunk.toString()));
     req.on('end', () => {
       try {
-        const parsedBody = body ? JSON.parse(body) : {};
-        resolve(parsedBody);
-      } catch (error) {
-        reject(error);
+        const parsed = body ? JSON.parse(body) : {};
+        resolve(parsed);
+      } catch (err) {
+        reject(new ValidationError('Corps JSON invalide', 'VAL_002'));
       }
     });
-    
-    req.on('error', error => {
-      reject(error);
-    });
+    req.on('error', err => reject(err));
   });
 }
 
-// Envoyer une réponse JSON
 function sendJsonResponse(res, statusCode, data) {
-  res.writeHead(statusCode, { 
+  res.writeHead(statusCode, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*'
+    'Access-Control-Allow-Origin': '*',
   });
   res.end(JSON.stringify(data));
 }
 
 // ============================================
-// HANDLERS DES ROUTES
+// VALIDATION SCHEMAS
+// ============================================
+const loginSchema = {
+  username: { type: 'string', required: true, minLength: 3 },
+  password: { type: 'string', required: true, minLength: 8 },
+};
+
+const signupSchema = {
+  username: { type: 'string', required: true, minLength: 3 },
+  password: { type: 'string', required: true, minLength: 8 },
+  nom: { type: 'string', required: true, minLength: 2 },
+};
+
+const reservationSchema = {
+  filmId: { type: 'number', required: true, min: 1 },
+  userId: { type: 'number', required: true, min: 1 },
+  nombrePlaces: { type: 'number', required: true, min: 1, max: 10 },
+};
+
+// ============================================
+// ROUTES
 // ============================================
 
-// GET /films - Récupérer la liste des films
-function handleGetFilms(req, res) {
+// GET /films
+const handleGetFilms = asyncHandler(async (req, res) => {
   const films = readJsonFile(FILMS_DB);
-  
-  if (films) {
-    sendJsonResponse(res, 200, {
-      success: true,
-      data: films
-    });
-  } else {
-    sendJsonResponse(res, 500, {
-      success: false,
-      message: "Erreur lors de la récupération des films"
-    });
-  }
-}
+  sendJsonResponse(res, 200, { success: true, data: films });
+});
 
-// POST /login - Authentification
-async function handleLogin(req, res) {
-  try {
-    const body = await parseRequestBody(req);
-    const { username, password } = body;
+// POST /login
+const handleLogin = asyncHandler(async (req, res) => {
+  const body = await parseRequestBody(req);
+  validate(body, loginSchema);
 
-    // Validation des champs
-    if (!username || !password) {
-      return sendJsonResponse(res, 400, {
-        success: false,
-        message: "Username et password sont requis"
-      });
-    }
-
-    // Vérification des identifiants
-    const users = readJsonFile(USERS_DB);
-    const user = users.find(u => u.username === username && u.password === password);
-
-    if (user) {
-      sendJsonResponse(res, 200, {
-        success: true,
-        message: "Connexion réussie",
-        data: {
-          userId: user.id,
-          username: user.username,
-          nom: user.nom
-        }
-      });
-    } else {
-      sendJsonResponse(res, 401, {
-        success: false,
-        message: "Identifiants incorrects"
-      });
-    }
-  } catch (error) {
-    sendJsonResponse(res, 400, {
-      success: false,
-      message: "Erreur lors du traitement de la requête: " + error.message
-    });
-  }
-}
-
-// POST /signup - Inscription
-async function handleSignup(req, res) {
-  try {
-    const body = await parseRequestBody(req);
-    const { username, password, nom } = body;
-
-    // Validation des champs
-    if (!username || !password || !nom) {
-      return sendJsonResponse(res, 400, {
-        success: false,
-        message: "Username, password et nom sont requis"
-      });
-    }
-
-    // Vérifier si l'utilisateur existe déjà
-    const users = readJsonFile(USERS_DB);
-    const existingUser = users.find(u => u.username === username);
-
-    if (existingUser) {
-      return sendJsonResponse(res, 409, {
-        success: false,
-        message: "Cet utilisateur existe déjà"
-      });
-    }
-
-    // Créer le nouvel utilisateur
-    const newUser = {
-      id: users.length > 0 ? Math.max(...users.map(u => u.id)) + 1 : 1,
-      username,
-      password,
-      nom
-    };
-
-    users.push(newUser);
-    writeJsonFile(USERS_DB, users);
-
-    sendJsonResponse(res, 201, {
-      success: true,
-      message: "Inscription réussie",
-      data: {
-        userId: newUser.id,
-        username: newUser.username,
-        nom: newUser.nom
-      }
-    });
-  } catch (error) {
-    sendJsonResponse(res, 400, {
-      success: false,
-      message: "Erreur lors du traitement de la requête: " + error.message
-    });
-  }
-}
-
-// POST /reservations - Créer une réservation
-async function handleCreateReservation(req, res) {
-  try {
-    const body = await parseRequestBody(req);
-    const { filmId, userId, nombrePlaces } = body;
-
-    // Validation des champs
-    if (!filmId || !userId || !nombrePlaces) {
-      return sendJsonResponse(res, 400, {
-        success: false,
-        message: "filmId, userId et nombrePlaces sont requis"
-      });
-    }
-
-    // Vérifier que le film existe et a assez de places
-    const films = readJsonFile(FILMS_DB);
-    const filmIndex = films.findIndex(f => f.id === parseInt(filmId));
-
-    if (filmIndex === -1) {
-      return sendJsonResponse(res, 404, {
-        success: false,
-        message: "Film non trouvé"
-      });
-    }
-
-    const film = films[filmIndex];
-
-    if (film.places_disponibles < nombrePlaces) {
-      return sendJsonResponse(res, 400, {
-        success: false,
-        message: `Pas assez de places disponibles (${film.places_disponibles} restantes)`
-      });
-    }
-
-    // Créer la réservation
-    const reservations = readJsonFile(RESERVATIONS_DB);
-    const newReservation = {
-      id: reservations.length > 0 ? Math.max(...reservations.map(r => r.id)) + 1 : 1,
-      filmId: parseInt(filmId),
-      userId: parseInt(userId),
-      nombrePlaces: parseInt(nombrePlaces),
-      date: new Date().toISOString(),
-      statut: "confirmée"
-    };
-
-    reservations.push(newReservation);
-    writeJsonFile(RESERVATIONS_DB, reservations);
-
-    // Mettre à jour les places disponibles
-    films[filmIndex].places_disponibles -= nombrePlaces;
-    writeJsonFile(FILMS_DB, films);
-
-    sendJsonResponse(res, 201, {
-      success: true,
-      message: "Réservation confirmée",
-      data: {
-        ...newReservation,
-        film: film.titre
-      }
-    });
-  } catch (error) {
-    sendJsonResponse(res, 400, {
-      success: false,
-      message: "Erreur lors du traitement de la requête: " + error.message
-    });
-  }
-}
-
-// GET /reservations?userId=X - Récupérer les réservations d'un utilisateur
-function handleGetReservations(req, res) {
-  // Extraire le paramètre userId de l'URL
-  const urlParts = req.url.split('?');
-  const queryString = urlParts[1] || '';
-  const params = new URLSearchParams(queryString);
-  const userId = params.get('userId');
-
-  if (!userId) {
-    return sendJsonResponse(res, 400, {
-      success: false,
-      message: "userId est requis en paramètre"
-    });
-  }
-
-  const reservations = readJsonFile(RESERVATIONS_DB);
-  const films = readJsonFile(FILMS_DB);
-  
-  // Filtrer les réservations de l'utilisateur
-  const userReservations = reservations
-    .filter(r => r.userId === parseInt(userId))
-    .map(r => {
-      const film = films.find(f => f.id === r.filmId);
-      return {
-        ...r,
-        filmTitre: film ? film.titre : "Film inconnu"
-      };
-    });
+  const users = readJsonFile(USERS_DB);
+  const user = users.find(u => u.username === body.username && u.password === body.password);
+  if (!user) throw new AuthenticationError('Identifiants incorrects', 'AUTH_004');
 
   sendJsonResponse(res, 200, {
     success: true,
-    data: userReservations
+    message: 'Connexion réussie',
+    data: { userId: user.id, username: user.username, nom: user.nom },
   });
-}
+});
+
+// POST /signup
+const handleSignup = asyncHandler(async (req, res) => {
+  const body = await parseRequestBody(req);
+  validate(body, signupSchema);
+
+  const users = readJsonFile(USERS_DB);
+  if (users.some(u => u.username === body.username)) {
+    throw new ConflictError('Cet utilisateur existe déjà', 'USER_002');
+  }
+
+  const newUser = {
+    id: users.length ? Math.max(...users.map(u => u.id)) + 1 : 1,
+    username: body.username,
+    password: body.password,
+    nom: body.nom,
+  };
+
+  users.push(newUser);
+  writeJsonFile(USERS_DB, users);
+
+  sendJsonResponse(res, 201, {
+    success: true,
+    message: 'Inscription réussie',
+    data: newUser,
+  });
+});
+
+// POST /reservations
+const handleCreateReservation = asyncHandler(async (req, res) => {
+  const body = await parseRequestBody(req);
+  validate(body, reservationSchema);
+
+  const films = readJsonFile(FILMS_DB);
+  const film = films.find(f => f.id === body.filmId);
+  if (!film) throw new NotFoundError('Film non trouvé', 'FILM_001');
+
+  if (film.places_disponibles < body.nombrePlaces) {
+    throw new ValidationError('Places insuffisantes', 'FILM_002');
+  }
+
+  const reservations = readJsonFile(RESERVATIONS_DB);
+  const newReservation = {
+    id: reservations.length ? Math.max(...reservations.map(r => r.id)) + 1 : 1,
+    filmId: body.filmId,
+    userId: body.userId,
+    nombrePlaces: body.nombrePlaces,
+    date: new Date().toISOString(),
+    statut: 'confirmée',
+  };
+
+  reservations.push(newReservation);
+  writeJsonFile(RESERVATIONS_DB, reservations);
+
+  film.places_disponibles -= body.nombrePlaces;
+  writeJsonFile(FILMS_DB, films);
+
+  sendJsonResponse(res, 201, { success: true, message: 'Réservation confirmée', data: newReservation });
+});
+
+// GET /reservations
+const handleGetReservations = asyncHandler(async (req, res) => {
+  const params = new URLSearchParams(req.url.split('?')[1] || '');
+  const userId = Number(params.get('userId'));
+
+  if (!userId || isNaN(userId)) throw new ValidationError('userId invalide ou manquant', 'VAL_004');
+
+  const reservations = readJsonFile(RESERVATIONS_DB);
+  const films = readJsonFile(FILMS_DB);
+  const userReservations = reservations
+    .filter(r => r.userId === userId)
+    .map(r => ({ ...r, filmTitre: films.find(f => f.id === r.filmId)?.titre || 'Inconnu' }));
+
+  sendJsonResponse(res, 200, { success: true, data: userReservations });
+});
 
 // ============================================
-// CRÉATION DU SERVEUR
+// SERVEUR & ROUTING
 // ============================================
 const server = http.createServer((req, res) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
 
-  // Gérer les requêtes OPTIONS (CORS preflight)
   if (req.method === 'OPTIONS') {
     res.writeHead(200, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
+      'Access-Control-Allow-Headers': 'Content-Type',
     });
     return res.end();
   }
 
-  // Router les requêtes selon la méthode et l'URL
   const method = req.method;
-  const url = req.url.split('?')[0]; // Enlever les paramètres de requête pour le routing
+  const url = req.url.split('?')[0];
 
-  switch (true) {
-    case method === 'GET' && url === '/films':
-      handleGetFilms(req, res);
-      break;
-
-    case method === 'POST' && url === '/login':
-      handleLogin(req, res);
-      break;
-
-    case method === 'POST' && url === '/signup':
-      handleSignup(req, res);
-      break;
-
-    case method === 'POST' && url === '/reservations':
-      handleCreateReservation(req, res);
-      break;
-
-    case method === 'GET' && url === '/reservations':
-      handleGetReservations(req, res);
-      break;
-
-    default:
-      sendJsonResponse(res, 404, {
-        success: false,
-        message: "Route non trouvée"
-      });
+  try {
+    switch (true) {
+      case method === 'GET' && url === '/films': return handleGetFilms(req, res);
+      case method === 'POST' && url === '/login': return handleLogin(req, res);
+      case method === 'POST' && url === '/signup': return handleSignup(req, res);
+      case method === 'POST' && url === '/reservations': return handleCreateReservation(req, res);
+      case method === 'GET' && url === '/reservations': return handleGetReservations(req, res);
+      default:
+        throw new NotFoundError('Route non trouvée', 'NOT_FOUND');
+    }
+  } catch (error) {
+    handleError(error, req, res);
   }
 });
 
-// ============================================
-// DÉMARRAGE DU SERVEUR
-// ============================================
-
 server.listen(PORT, () => {
-  console.log('='.repeat(50));
-  console.log('🎬 CinéReserve - Serveur Node.js Pur');
-  console.log('='.repeat(50));
-  console.log(`✅ Serveur démarré sur http://localhost:${PORT}`);
-  console.log('\n📋 Routes disponibles:');
-  console.log('  GET  /films              - Liste des films');
-  console.log('  POST /login              - Connexion');
-  console.log('  POST /signup             - Inscription');
-  console.log('  POST /reservations       - Créer une réservation');
-  console.log('  GET  /reservations?userId=X - Réservations d\'un utilisateur');
-  console.log('='.repeat(50));
+  console.log(`✅ Serveur CinéReserve lancé sur http://localhost:${PORT}`);
 });
+
 
 // ============================================
 // GESTION DES ERREURS NON CAPTURÉES & ARRÊT PROPRE

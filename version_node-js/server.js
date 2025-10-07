@@ -6,6 +6,15 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { asyncHandler, handleError } = require('./modules/errorHandler');
+const {
+  ValidationError,
+  AuthenticationError,
+  ConflictError,
+  NotFoundError,
+  ServerError,
+} = require('./modules/errors');
+const { validate } = require('./modules/validator');
 
 // ============================================
 // CONFIGURATION
@@ -360,3 +369,62 @@ server.listen(PORT, () => {
   console.log('  GET  /reservations?userId=X - Réservations d\'un utilisateur');
   console.log('='.repeat(50));
 });
+
+// ============================================
+// GESTION DES ERREURS NON CAPTURÉES & ARRÊT PROPRE
+// ============================================
+
+// 1️⃣ Erreurs synchrones non gérées
+process.on('uncaughtException', (error) => {
+  console.error('🚨 ERREUR CRITIQUE NON GÉRÉE (uncaughtException) 🚨');
+  console.error('Message :', error.message);
+  console.error('Stack :', error.stack);
+  
+  // Tenter un arrêt propre
+  try {
+    console.log('🧹 Fermeture du serveur suite à une erreur critique...');
+    server.close(() => {
+      console.log('✅ Connexions fermées proprement.');
+      process.exit(1); // Quitte avec échec
+    });
+
+    // Sécurité : forcer la sortie après 5 s
+    setTimeout(() => {
+      console.error('⚠️ Forçage de la fermeture du processus.');
+      process.exit(1);
+    }, 5000);
+  } catch (shutdownError) {
+    console.error('Erreur lors de la fermeture du serveur :', shutdownError);
+    process.exit(1);
+  }
+});
+
+// 2️⃣ Promesses rejetées non gérées
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ PROMESSE REJETÉE NON GÉRÉE (unhandledRejection) ⚠️');
+  console.error('Raison :', reason);
+  console.error('Promise :', promise);
+
+  // Ici, on log seulement, le serveur peut continuer
+  // (si ces erreurs deviennent fréquentes, on envisagera un redémarrage auto)
+});
+
+// 3️⃣ Arrêt manuel / système (SIGINT, SIGTERM)
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
+
+function gracefulShutdown(signal) {
+  console.log(`\n🛑 Signal ${signal} reçu : arrêt du serveur...`);
+
+  server.close(() => {
+    console.log('✅ Toutes les connexions fermées proprement.');
+    console.log('👋 Serveur arrêté.');
+    process.exit(0);
+  });
+
+  // Sécurité : forcer la sortie après 30 s
+  setTimeout(() => {
+    console.error('⚠️ Forçage de l’arrêt après 30 secondes.');
+    process.exit(1);
+  }, 30000);
+}

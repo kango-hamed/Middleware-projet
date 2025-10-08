@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "titre": "Inception",
+    "realisateur": "Christopher Nolan",
+    "annee": 2010,
+    "placesDisponibles": 50
+  },
+  {
+    "id": 2,
+    "titre": "Interstellar",
+    "realisateur": "Christopher Nolan",
+    "annee": 2014,
+    "placesDisponibles": 30
+  },
+  {
+    "id": 3,
+    "titre": "Le Seigneur des Anneaux : La Communauté de l'Anneau",
+    "realisateur": "Peter Jackson",
+    "annee": 2001,
+    "placesDisponibles": 20
+  }
+]

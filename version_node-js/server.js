@@ -1,5 +1,5 @@
 // ============================================
-// CinéReserve - Serveur Node.js pur (avec gestion d’erreurs intégrée)
+// CinéReserve - Serveur Node.js pur (avec JWT & Auth intégrés)
 // ============================================
 
 const http = require('http');
@@ -18,12 +18,17 @@ const logger = require('./modules/logger');
 const { SECURITY_EVENTS } = require('./modules/logger');
 const { checkRateLimit } = require('./modules/rateLimiter');
 
-// --- Phase 3 modules ajoutés ---
+// --- Phase 3 modules ---
 const { setSecurityHeaders } = require('./modules/securityHeaders');
 const { sanitizeObject } = require('./modules/sanitizer');
 const { checkContentLength, readRequestBody } = require('./modules/requestLimiter');
 const { validatePath } = require('./modules/pathSecurity');
-// ------------------------------------------------
+
+// --- JWT & Auth modules ---
+const { generateToken, verifyToken } = require('./modules/jwt');
+const { authenticate } = require('./modules/auth');
+const { createSession, deleteSession } = require('./modules/sessionManager');
+const { hashPassword, verifyPassword } = require('./modules/crypto');
 
 /* Initialiser le système de logs */
 logger.initLogger();
@@ -39,18 +44,18 @@ const RESERVATIONS_DB = path.join(DB_DIR, 'reservations.json');
 
 const MAX_BODY_BYTES = 1 * 1024 * 1024; // 1MB
 const BODY_TIMEOUT_MS = 30 * 1000; // 30s
+const JWT_SECRET = process.env.JWT_SECRET || 'devSecretKey';
+const JWT_EXPIRES_IN = 3600 * 24; // 24 heures
 
 // ============================================
 // UTILITAIRES
 // ============================================
 function readJsonFile(filePath) {
   try {
-    // Protection path traversal : autoriser lecture seulement dans DB_DIR
     const safePath = validatePath(path.relative(DB_DIR, filePath), DB_DIR);
     const data = fs.readFileSync(safePath, 'utf8');
     return JSON.parse(data);
   } catch (error) {
-    // Si notre validatePath jette, ou fs lit mal => transformer en ServerError
     if (error.message && error.message.includes('Tentative de path traversal')) {
       throw new ServerError(`Accès fichier non autorisé : ${filePath}`, 'SEC_001');
     }
@@ -70,12 +75,7 @@ function writeJsonFile(filePath, data) {
   }
 }
 
-/**
- * parseRequestBody remplacé par readRequestBody (avec timeout & limite)
- * parseRequestBody garde une compatibilité si tu veux l'utiliser ailleurs
- */
 async function parseRequestBody(req) {
-  // Vérifier Content-Length avant de lire
   const clCheck = checkContentLength(req, MAX_BODY_BYTES);
   if (!clCheck.ok) {
     const err = new ValidationError(clCheck.message, 'VAL_003');
@@ -89,7 +89,6 @@ async function parseRequestBody(req) {
   } catch (err) {
     if (err && err.code === 413) throw new ValidationError('Payload trop volumineux', 'VAL_005');
     if (err && err.code === 408) throw new ValidationError('Timeout lecture du corps', 'VAL_006');
-    // JSON parse error or others
     if (err instanceof SyntaxError || (err && err.message && err.message.includes('JSON'))) {
       throw new ValidationError('Corps JSON invalide', 'VAL_002');
     }
@@ -98,13 +97,24 @@ async function parseRequestBody(req) {
 }
 
 function sendJsonResponse(res, statusCode, data) {
-  // Ajouter headers de sécurité systématiquement avant de répondre
   try { setSecurityHeaders(res); } catch (e) { /* ne pas faire planter la réponse */ }
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
   });
   res.end(JSON.stringify(data));
+}
+
+/**
+ * Middleware d'authentification
+ * Vérifie le token JWT et attache userId à la requête
+ */
+function requireAuth(req) {
+  const authResult = authenticate(req);
+  if (!authResult) {
+    throw new AuthenticationError('Token invalide ou expiré', 'AUTH_001');
+  }
+  return authResult;
 }
 
 // ============================================
@@ -123,7 +133,6 @@ const signupSchema = {
 
 const reservationSchema = {
   filmId: { type: 'number', required: true, min: 1 },
-  userId: { type: 'number', required: true, min: 1 },
   nombrePlaces: { type: 'number', required: true, min: 1, max: 10 },
 };
 
@@ -131,7 +140,7 @@ const reservationSchema = {
 // ROUTES
 // ============================================
 
-// GET /films
+// GET /films (publique)
 const handleGetFilms = asyncHandler(async (req, res) => {
   const films = readJsonFile(FILMS_DB);
   sendJsonResponse(res, 200, { success: true, data: films });
@@ -139,28 +148,44 @@ const handleGetFilms = asyncHandler(async (req, res) => {
 
 // POST /login
 const handleLogin = asyncHandler(async (req, res) => {
-  // 1) lire, 2) sanitiser, 3) valider
   const rawBody = await parseRequestBody(req);
   const body = sanitizeObject(rawBody);
   validate(body, loginSchema);
 
-  // NOTE: si tu utilises users_hashed.json avec passwordHash/passwordSalt,
-  // adapte la logique ici (vérification via verifyPassword). Ici on garde
-  // la logique existante mais on recommande d'utiliser verifyPassword si disponible.
   const users = readJsonFile(USERS_DB);
-  const user = users.find(u => u.username === body.username && (
-    // compatibilité : si utilisateur a passwordHash, ignore password plain search
-    (u.password && u.password === body.password) ||
-    (u.passwordHash && u.passwordSalt && false) // placeholder si verifyPassword est utilisé ailleurs
-  ));
+  const user = users.find(u => u.username === body.username);
 
   if (!user) {
     logger.logSecurity(SECURITY_EVENTS.LOGIN_FAILED, {
       username: body.username,
-      reason: 'invalid_credentials'
+      reason: 'user_not_found'
     }, req);
     throw new AuthenticationError('Identifiants incorrects', 'AUTH_004');
   }
+
+  // Vérification du mot de passe (hashé ou plain selon migration)
+  let isPasswordValid = false;
+  if (user.passwordHash && user.passwordSalt) {
+    // Utilisation du système de hash
+    isPasswordValid = verifyPassword(body.password, user.passwordHash, user.passwordSalt);
+  } else if (user.password) {
+    // Fallback pour anciens utilisateurs (à migrer)
+    isPasswordValid = user.password === body.password;
+  }
+
+  if (!isPasswordValid) {
+    logger.logSecurity(SECURITY_EVENTS.LOGIN_FAILED, {
+      username: body.username,
+      reason: 'invalid_password'
+    }, req);
+    throw new AuthenticationError('Identifiants incorrects', 'AUTH_004');
+  }
+
+  // Génération du token JWT
+  const token = generateToken({ userId: user.id }, JWT_SECRET, JWT_EXPIRES_IN);
+  
+  // Création de la session
+  createSession(token, user.id);
 
   logger.logSecurity(SECURITY_EVENTS.LOGIN_SUCCESS, {
     userId: user.id,
@@ -170,7 +195,12 @@ const handleLogin = asyncHandler(async (req, res) => {
   sendJsonResponse(res, 200, {
     success: true,
     message: 'Connexion réussie',
-    data: { userId: user.id, username: user.username, nom: user.nom },
+    data: { 
+      userId: user.id, 
+      username: user.username, 
+      nom: user.nom,
+      token 
+    },
   });
 });
 
@@ -185,30 +215,67 @@ const handleSignup = asyncHandler(async (req, res) => {
     throw new ConflictError('Cet utilisateur existe déjà', 'USER_002');
   }
 
+  // Hash du mot de passe
+  const { hash, salt } = hashPassword(body.password);
+
   const newUser = {
     id: users.length ? Math.max(...users.map(u => u.id)) + 1 : 1,
     username: body.username,
-    password: body.password,
+    passwordHash: hash,
+    passwordSalt: salt,
     nom: body.nom,
+    createdAt: new Date().toISOString(),
   };
 
   users.push(newUser);
   writeJsonFile(USERS_DB, users);
 
-  sendJsonResponse(res, 201, {
-    success: true,
-    message: 'Inscription réussie',
-    data: { id: newUser.id, username: newUser.username, nom: newUser.nom }, // ne pas renvoyer password
-  });
+  // Génération du token JWT automatique après inscription
+  const token = generateToken({ userId: newUser.id }, JWT_SECRET, JWT_EXPIRES_IN);
+  createSession(token, newUser.id);
 
   logger.logSecurity(SECURITY_EVENTS.SIGNUP, {
     userId: newUser.id,
     username: newUser.username
   }, req);
+
+  sendJsonResponse(res, 201, {
+    success: true,
+    message: 'Inscription réussie',
+    data: { 
+      id: newUser.id, 
+      username: newUser.username, 
+      nom: newUser.nom,
+      token 
+    },
+  });
 });
 
-// POST /reservations
+// POST /logout
+const handleLogout = asyncHandler(async (req, res) => {
+  const authResult = requireAuth(req);
+  
+  // Supprimer la session
+  const authHeader = req.headers['authorization'];
+  const token = authHeader.replace('Bearer ', '').trim();
+  deleteSession(token);
+
+  logger.logSecurity(SECURITY_EVENTS.LOGOUT, {
+    userId: authResult.userId
+  }, req);
+
+  sendJsonResponse(res, 200, {
+    success: true,
+    message: 'Déconnexion réussie'
+  });
+});
+
+// POST /reservations (protégée)
 const handleCreateReservation = asyncHandler(async (req, res) => {
+  // Authentification requise
+  const authResult = requireAuth(req);
+  const userId = authResult.userId;
+
   const rawBody = await parseRequestBody(req);
   const body = sanitizeObject(rawBody);
   validate(body, reservationSchema);
@@ -222,7 +289,7 @@ const handleCreateReservation = asyncHandler(async (req, res) => {
   }
 
   logger.log('INFO', 'Nouvelle demande de réservation', {
-    userId: body.userId,
+    userId: userId,
     filmId: body.filmId
   });
 
@@ -230,7 +297,7 @@ const handleCreateReservation = asyncHandler(async (req, res) => {
   const newReservation = {
     id: reservations.length ? Math.max(...reservations.map(r => r.id)) + 1 : 1,
     filmId: body.filmId,
-    userId: body.userId,
+    userId: userId, // Utilise l'userId du token
     nombrePlaces: body.nombrePlaces,
     date: new Date().toISOString(),
     statut: 'confirmée',
@@ -243,30 +310,60 @@ const handleCreateReservation = asyncHandler(async (req, res) => {
   film.places_disponibles -= body.nombrePlaces;
   writeJsonFile(FILMS_DB, films);
 
-  sendJsonResponse(res, 201, { success: true, message: 'Réservation confirmée', data: newReservation });
+  sendJsonResponse(res, 201, { 
+    success: true, 
+    message: 'Réservation confirmée', 
+    data: newReservation 
+  });
 });
 
-// GET /reservations
+// GET /reservations (protégée)
 const handleGetReservations = asyncHandler(async (req, res) => {
-  const params = new URLSearchParams(req.url.split('?')[1] || '');
-  const userId = Number(params.get('userId'));
-
-  if (!userId || isNaN(userId)) throw new ValidationError('userId invalide ou manquant', 'VAL_004');
+  // Authentification requise
+  const authResult = requireAuth(req);
+  const userId = authResult.userId;
 
   const reservations = readJsonFile(RESERVATIONS_DB);
   const films = readJsonFile(FILMS_DB);
+  
+  // L'utilisateur ne peut voir que ses propres réservations
   const userReservations = reservations
     .filter(r => r.userId === userId)
-    .map(r => ({ ...r, filmTitre: films.find(f => f.id === r.filmId)?.titre || 'Inconnu' }));
+    .map(r => ({ 
+      ...r, 
+      filmTitre: films.find(f => f.id === r.filmId)?.titre || 'Inconnu' 
+    }));
 
   sendJsonResponse(res, 200, { success: true, data: userReservations });
+});
+
+// GET /me (nouvelle route pour obtenir les infos de l'utilisateur connecté)
+const handleGetMe = asyncHandler(async (req, res) => {
+  const authResult = requireAuth(req);
+  const userId = authResult.userId;
+
+  const users = readJsonFile(USERS_DB);
+  const user = users.find(u => u.id === userId);
+
+  if (!user) {
+    throw new NotFoundError('Utilisateur non trouvé', 'USER_001');
+  }
+
+  sendJsonResponse(res, 200, {
+    success: true,
+    data: {
+      id: user.id,
+      username: user.username,
+      nom: user.nom,
+      createdAt: user.createdAt
+    }
+  });
 });
 
 // ============================================
 // SERVEUR & ROUTING
 // ============================================
 const server = http.createServer((req, res) => {
-  // calculer pathname correctement (utilisé pour rate limiter)
   const fullUrl = req.url || '/';
   const pathname = fullUrl.split('?')[0];
 
@@ -297,11 +394,24 @@ const server = http.createServer((req, res) => {
 
   try {
     switch (true) {
-      case method === 'GET' && url === '/films': return handleGetFilms(req, res);
-      case method === 'POST' && url === '/login': return handleLogin(req, res);
-      case method === 'POST' && url === '/signup': return handleSignup(req, res);
-      case method === 'POST' && url === '/reservations': return handleCreateReservation(req, res);
-      case method === 'GET' && url === '/reservations': return handleGetReservations(req, res);
+      // Routes publiques
+      case method === 'GET' && url === '/films': 
+        return handleGetFilms(req, res);
+      case method === 'POST' && url === '/login': 
+        return handleLogin(req, res);
+      case method === 'POST' && url === '/signup': 
+        return handleSignup(req, res);
+      
+      // Routes protégées
+      case method === 'POST' && url === '/logout': 
+        return handleLogout(req, res);
+      case method === 'POST' && url === '/reservations': 
+        return handleCreateReservation(req, res);
+      case method === 'GET' && url === '/reservations': 
+        return handleGetReservations(req, res);
+      case method === 'GET' && url === '/me': 
+        return handleGetMe(req, res);
+      
       default:
         throw new NotFoundError('Route non trouvée', 'NOT_FOUND');
     }
@@ -313,7 +423,8 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => {
   logger.log('INFO', `Serveur CinéReserve démarré sur le port ${PORT}`, {
     port: PORT,
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    jwtEnabled: true
   });
 });
 
@@ -321,7 +432,6 @@ server.listen(PORT, () => {
 // GESTION DES ERREURS NON CAPTURÉES & ARRÊT PROPRE
 // ============================================
 
-// Erreurs synchrones non gérées
 process.on('uncaughtException', (error) => {
   logger.log('CRITICAL', 'Erreur critique non gérée (uncaughtException)', {}, error);
   gracefulShutdown('uncaughtException');
@@ -339,11 +449,10 @@ function gracefulShutdown(signal) {
   });
 
   setTimeout(() => {
-    logger.log('ERROR', 'Forçage de l’arrêt après 30 secondes.');
+    logger.log('ERROR', `Forçage de l'arrêt après 30 secondes.`);
     process.exit(1);
   }, 30000);
 }
 
-// SIGINT / SIGTERM
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
